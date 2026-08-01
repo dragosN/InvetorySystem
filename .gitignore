@@ -1,0 +1,18 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Go
+orders-service/bin/
+*.exe
+
+# Bun / Node
+notifications-service/node_modules/
+*.log
+
+# Local env
+.env
+.env.*
+!.env.example
