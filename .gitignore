@@ -6,7 +6,9 @@
 
 # Go
 orders-service/bin/
+orders-service/data/
 *.exe
+*.db
 
 # Bun / Node
 notifications-service/node_modules/

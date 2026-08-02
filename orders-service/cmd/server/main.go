@@ -1,7 +1,93 @@
 package main
 
-import "fmt"
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/nicadragos/InventorySystem/orders-service/internal/kafka"
+	"github.com/nicadragos/InventorySystem/orders-service/internal/order"
+)
 
 func main() {
-	fmt.Println("orders-service: stub (Day 2 will add REST API + Kafka producer)")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	cfg := loadConfig()
+	if err := os.MkdirAll(filepath.Dir(cfg.SQLitePath), 0o755); err != nil {
+		logger.Error("create data dir", "path", cfg.SQLitePath, "error", err)
+		os.Exit(1)
+	}
+
+	store, err := order.NewStore(cfg.SQLitePath)
+	if err != nil {
+		logger.Error("open store", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	publisher := kafka.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopic)
+	defer publisher.Close()
+
+	mux := http.NewServeMux()
+	order.NewHandler(store, publisher, logger).Register(mux)
+
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		logger.Info("orders-service listening",
+			"addr", cfg.HTTPAddr,
+			"kafka_brokers", strings.Join(cfg.KafkaBrokers, ","),
+			"kafka_topic", cfg.KafkaTopic,
+			"sqlite", cfg.SQLitePath,
+		)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("shutdown", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("orders-service stopped")
+}
+
+type config struct {
+	HTTPAddr     string
+	KafkaBrokers []string
+	KafkaTopic   string
+	SQLitePath   string
+}
+
+func loadConfig() config {
+	return config{
+		HTTPAddr:     envOr("HTTP_ADDR", ":8080"),
+		KafkaBrokers: strings.Split(envOr("KAFKA_BROKERS", "localhost:19092"), ","),
+		KafkaTopic:   envOr("KAFKA_TOPIC", "order.created"),
+		SQLitePath:   envOr("SQLITE_PATH", "data/orders.db"),
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
