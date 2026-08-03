@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun --watch src/index.ts"
+    "dev": "bun --watch src/index.ts",
+    "mock-webhook": "bun run src/mock-receiver.ts"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4"
   },
   "devDependencies": {
     "@types/bun": "latest",
