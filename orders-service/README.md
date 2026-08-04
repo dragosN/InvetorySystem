@@ -1,12 +1,12 @@
 # orders-service
 
-Go REST API for orders. Creates orders in SQLite and publishes `order.created` events to Kafka (Redpanda).
+Go REST API for orders. Creates orders in SQLite, publishes `order.created` to Kafka, and rate-limits creates via Redis.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/orders` | Create order + publish event |
+| `POST` | `/orders` | Create order + publish event (rate limited) |
 | `GET` | `/orders/{id}` | Fetch order by id |
 | `GET` | `/healthz` | Liveness |
 
@@ -22,9 +22,11 @@ Go REST API for orders. Creates orders in SQLite and publishes `order.created` e
 
 `unit_price` and response `total` are in cents.
 
+Rate limit identity: `X-Client-Id` header, else client IP. Over limit → `429` with `Retry-After`.
+
 ## Run
 
-Requires Redpanda from `infra/` (`localhost:19092`).
+Requires Redpanda + Redis from `infra/`.
 
 ```bash
 cd orders-service
@@ -39,15 +41,15 @@ Env defaults:
 | `KAFKA_BROKERS` | `localhost:19092` |
 | `KAFKA_TOPIC` | `order.created` |
 | `SQLITE_PATH` | `data/orders.db` |
+| `REDIS_ADDR` | `localhost:6379` |
+| `RATE_LIMIT` | `5` |
+| `RATE_WINDOW_SEC` | `60` |
 
 ## Example
 
 ```bash
 curl -sS -X POST http://localhost:8080/orders \
   -H 'Content-Type: application/json' \
-  -d '{"items":[{"sku":"WIDGET","quantity":1,"unit_price":2500}]}' | jq
-
-# Watch the event
-cd ../infra
-docker compose exec redpanda rpk topic consume order.created --offset end --num 1
+  -H 'X-Client-Id: demo' \
+  -d '{"items":[{"sku":"WIDGET","quantity":1,"unit_price":2500}]}'
 ```

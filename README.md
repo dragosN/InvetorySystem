@@ -2,84 +2,58 @@
 
 Portfolio project: an orders service (Go) publishes events to Kafka (Redpanda), a notifications service (Bun/TypeScript) consumes them and sends webhooks, Redis handles caching/rate limiting, and Prometheus + Grafana provide observability.
 
-## Current status (Day 3)
-
-End-to-end event path works:
+## Current status (Day 4)
 
 ```
-POST /orders  →  SQLite + Kafka order.created  →  notifications-service  →  webhook POST
+POST /orders (Redis rate limit)
+  → SQLite + Kafka order.created
+  → notifications-service (Redis idempotency by event_id)
+  → webhook POST (once per event)
 ```
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) with Compose v2 (or Colima)
+- Docker / Colima with Compose v2
 - Go 1.22+
-- [Bun](https://bun.sh)
+- Bun
 
 ## Quick start
 
-### 1. Infra
-
 ```bash
-cd infra
-docker compose up -d
+cd infra && docker compose up -d
+
+cd ../orders-service && go run ./cmd/server
+
+cd ../notifications-service
+bun run mock-webhook   # terminal A
+bun run start          # terminal B
 ```
 
-| Service     | URL                         | Creds        |
-|-------------|-----------------------------|--------------|
-| Prometheus  | http://localhost:9090       | —            |
-| Grafana     | http://localhost:3000       | admin/admin  |
-| Redpanda    | Kafka on `localhost:19092`  | —            |
-| Redis       | `localhost:6379`            | —            |
-
-### 2. Orders API
-
-```bash
-cd orders-service
-go run ./cmd/server
-```
-
-### 3. Notifications + mock webhook
-
-```bash
-cd notifications-service
-bun install
-
-# Terminal A
-bun run mock-webhook
-
-# Terminal B
-bun run start
-```
-
-### 4. Create an order and confirm webhook
+Create an order:
 
 ```bash
 curl -sS -X POST http://localhost:8080/orders \
   -H 'Content-Type: application/json' \
+  -H 'X-Client-Id: demo' \
   -d '{"items":[{"sku":"WIDGET","quantity":2,"unit_price":1500}]}'
 
 curl -sS http://localhost:8090/deliveries
 ```
 
-## Repo layout
+Rate limit demo (default 5/min per client): sixth request should be `429`.
 
-```
-orders-service/          # Go API + Kafka producer (Day 2)
-notifications-service/   # Bun consumer + webhooks (Day 3)
-infra/                   # docker-compose, Prometheus, Grafana
-docs/                    # Day write-ups
-scripts/                 # smoke tests / load tests
-```
+## Docs
+
+- [Day 2 — Orders API](docs/DAY-2.md)
+- [Day 3 — Notifications](docs/DAY-3.md)
+- [Day 4 — Redis](docs/DAY-4.md)
 
 ## Roadmap
 
 | Day | Focus |
 |-----|--------|
-| 1 | Infra + Kafka smoke test (done) |
-| 2 | Orders REST API + `order.created` publish (done) |
-| 3 | Notifications consumer + webhook delivery (done) |
-| 4 | Redis rate limiting + idempotency |
+| 1–3 | Infra, orders API, notifications (done) |
+| 4 | Redis rate limiting + idempotency (done) |
 | 5 | Prometheus metrics on both services |
 | 6 | Grafana dashboard |
 | 7 | Load test, polish, README hero shot |

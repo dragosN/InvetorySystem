@@ -13,6 +13,7 @@ import (
 
 	"github.com/nicadragos/InventorySystem/orders-service/internal/kafka"
 	"github.com/nicadragos/InventorySystem/orders-service/internal/order"
+	"github.com/nicadragos/InventorySystem/orders-service/internal/ratelimit"
 )
 
 func main() {
@@ -34,12 +35,22 @@ func main() {
 	publisher := kafka.NewPublisher(cfg.KafkaBrokers, cfg.KafkaTopic)
 	defer publisher.Close()
 
+	limiter, err := ratelimit.New(cfg.RedisAddr, cfg.RateLimit, cfg.RateWindowSec)
+	if err != nil {
+		logger.Error("connect redis", "addr", cfg.RedisAddr, "error", err)
+		os.Exit(1)
+	}
+	defer limiter.Close()
+
 	mux := http.NewServeMux()
 	order.NewHandler(store, publisher, logger).Register(mux)
 
+	var handler http.Handler = mux
+	handler = ratelimit.Middleware(limiter, logger)(handler)
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -49,6 +60,9 @@ func main() {
 			"kafka_brokers", strings.Join(cfg.KafkaBrokers, ","),
 			"kafka_topic", cfg.KafkaTopic,
 			"sqlite", cfg.SQLitePath,
+			"redis", cfg.RedisAddr,
+			"rate_limit", cfg.RateLimit,
+			"rate_window_sec", cfg.RateWindowSec,
 		)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
@@ -70,18 +84,24 @@ func main() {
 }
 
 type config struct {
-	HTTPAddr     string
-	KafkaBrokers []string
-	KafkaTopic   string
-	SQLitePath   string
+	HTTPAddr       string
+	KafkaBrokers   []string
+	KafkaTopic     string
+	SQLitePath     string
+	RedisAddr      string
+	RateLimit      int
+	RateWindowSec  int
 }
 
 func loadConfig() config {
 	return config{
-		HTTPAddr:     envOr("HTTP_ADDR", ":8080"),
-		KafkaBrokers: strings.Split(envOr("KAFKA_BROKERS", "localhost:19092"), ","),
-		KafkaTopic:   envOr("KAFKA_TOPIC", "order.created"),
-		SQLitePath:   envOr("SQLITE_PATH", "data/orders.db"),
+		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
+		KafkaBrokers:  strings.Split(envOr("KAFKA_BROKERS", "localhost:19092"), ","),
+		KafkaTopic:    envOr("KAFKA_TOPIC", "order.created"),
+		SQLitePath:    envOr("SQLITE_PATH", "data/orders.db"),
+		RedisAddr:     envOr("REDIS_ADDR", "localhost:6379"),
+		RateLimit:     ratelimit.MustAtoi(envOr("RATE_LIMIT", "5"), 5),
+		RateWindowSec: ratelimit.MustAtoi(envOr("RATE_WINDOW_SEC", "60"), 60),
 	}
 }
 

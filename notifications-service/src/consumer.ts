@@ -1,7 +1,17 @@
-import { Kafka, logLevel, type EachMessagePayload } from "kafkajs";
+import {
+  Kafka,
+  logLevel,
+  CompressionTypes,
+  CompressionCodecs,
+  type EachMessagePayload,
+} from "kafkajs";
+import SnappyCodec from "kafkajs-snappy";
 import { config } from "./config";
 import { deliverWebhook } from "./webhook";
+import { claimDelivery, saveDeliveryStatus } from "./idempotency";
 import { isOrderCreatedEvent, type OrderCreatedEvent } from "./types";
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec;
 
 function log(fields: Record<string, unknown>) {
   console.log(JSON.stringify({ time: new Date().toISOString(), ...fields }));
@@ -27,6 +37,7 @@ export async function startConsumer(): Promise<() => Promise<void>> {
     topic: config.kafkaTopic,
     group_id: config.kafkaGroupId,
     webhook_url: config.webhookUrl,
+    redis_url: config.redisUrl,
   });
 
   await consumer.run({
@@ -51,7 +62,6 @@ export async function startConsumer(): Promise<() => Promise<void>> {
         return;
       }
 
-      // Ignore Day-1 smoke payloads that lack the full event envelope
       if (!isOrderCreatedEvent(parsed) || parsed.event_type !== "order.created") {
         log({
           msg: "skip unrecognized event",
@@ -73,8 +83,28 @@ export async function startConsumer(): Promise<() => Promise<void>> {
         offset: message.offset,
       });
 
+      const existing = await claimDelivery(event.event_id, event.order_id);
+      if (existing) {
+        log({
+          msg: "skip duplicate event (idempotent)",
+          event_id: event.event_id,
+          order_id: event.order_id,
+          cached_status: existing.status,
+          cached_at: existing.updated_at,
+        });
+        return;
+      }
+
       const result = await deliverWebhook(event);
       if (result.ok) {
+        await saveDeliveryStatus({
+          status: "success",
+          event_id: event.event_id,
+          order_id: event.order_id,
+          attempts: result.attempts,
+          http_status: result.status,
+          updated_at: new Date().toISOString(),
+        });
         log({
           msg: "webhook delivered",
           event_id: event.event_id,
@@ -85,7 +115,16 @@ export async function startConsumer(): Promise<() => Promise<void>> {
         return;
       }
 
-      // Commit progresses anyway so a poison event does not block the group.
+      await saveDeliveryStatus({
+        status: "failed",
+        event_id: event.event_id,
+        order_id: event.order_id,
+        attempts: result.attempts,
+        http_status: result.status,
+        error: result.error,
+        updated_at: new Date().toISOString(),
+      });
+
       log({
         msg: "webhook delivery failed permanently",
         event_id: event.event_id,
