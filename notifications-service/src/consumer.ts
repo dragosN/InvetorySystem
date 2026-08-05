@@ -3,6 +3,8 @@ import {
   logLevel,
   CompressionTypes,
   CompressionCodecs,
+  type Admin,
+  type Consumer,
   type EachMessagePayload,
 } from "kafkajs";
 import SnappyCodec from "kafkajs-snappy";
@@ -10,11 +12,58 @@ import { config } from "./config";
 import { deliverWebhook } from "./webhook";
 import { claimDelivery, saveDeliveryStatus } from "./idempotency";
 import { isOrderCreatedEvent, type OrderCreatedEvent } from "./types";
+import {
+  consumerLag,
+  eventsConsumed,
+  eventsSkippedDuplicate,
+  webhookFailure,
+  webhookSuccess,
+} from "./metrics";
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec;
 
 function log(fields: Record<string, unknown>) {
   console.log(JSON.stringify({ time: new Date().toISOString(), ...fields }));
+}
+
+async function refreshConsumerLag(admin: Admin): Promise<void> {
+  try {
+    const topicOffsets = await admin.fetchTopicOffsets(config.kafkaTopic);
+    const groupOffsets = await admin.fetchOffsets({
+      groupId: config.kafkaGroupId,
+      topics: [config.kafkaTopic],
+    });
+
+    const committed = new Map<number, number>();
+    for (const topic of groupOffsets) {
+      for (const p of topic.partitions) {
+        const offset = Number.parseInt(p.offset, 10);
+        if (Number.isFinite(offset) && offset >= 0) {
+          committed.set(p.partition, offset);
+        }
+      }
+    }
+
+    for (const p of topicOffsets) {
+      const high = Number.parseInt(p.high, 10);
+      const current = committed.get(p.partition);
+      const lag =
+        Number.isFinite(high) && current !== undefined
+          ? Math.max(0, high - current)
+          : Number.isFinite(high)
+            ? high
+            : 0;
+      consumerLag.set(
+        { topic: config.kafkaTopic, partition: String(p.partition) },
+        lag,
+      );
+    }
+  } catch (err) {
+    log({
+      msg: "consumer lag refresh failed",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function startConsumer(): Promise<() => Promise<void>> {
@@ -24,7 +73,9 @@ export async function startConsumer(): Promise<() => Promise<void>> {
     logLevel: logLevel.WARN,
   });
 
-  const consumer = kafka.consumer({ groupId: config.kafkaGroupId });
+  const admin: Admin = kafka.admin();
+  const consumer: Consumer = kafka.consumer({ groupId: config.kafkaGroupId });
+  await admin.connect();
   await consumer.connect();
   await consumer.subscribe({
     topic: config.kafkaTopic,
@@ -39,6 +90,11 @@ export async function startConsumer(): Promise<() => Promise<void>> {
     webhook_url: config.webhookUrl,
     redis_url: config.redisUrl,
   });
+
+  const lagTimer = setInterval(() => {
+    void refreshConsumerLag(admin);
+  }, config.lagRefreshMs);
+  void refreshConsumerLag(admin);
 
   await consumer.run({
     eachMessage: async ({ topic, partition, message }: EachMessagePayload) => {
@@ -74,6 +130,7 @@ export async function startConsumer(): Promise<() => Promise<void>> {
       }
 
       const event: OrderCreatedEvent = parsed;
+      eventsConsumed.inc();
       log({
         msg: "event consumed",
         event_id: event.event_id,
@@ -85,6 +142,7 @@ export async function startConsumer(): Promise<() => Promise<void>> {
 
       const existing = await claimDelivery(event.event_id, event.order_id);
       if (existing) {
+        eventsSkippedDuplicate.inc();
         log({
           msg: "skip duplicate event (idempotent)",
           event_id: event.event_id,
@@ -97,6 +155,7 @@ export async function startConsumer(): Promise<() => Promise<void>> {
 
       const result = await deliverWebhook(event);
       if (result.ok) {
+        webhookSuccess.inc();
         await saveDeliveryStatus({
           status: "success",
           event_id: event.event_id,
@@ -115,6 +174,7 @@ export async function startConsumer(): Promise<() => Promise<void>> {
         return;
       }
 
+      webhookFailure.inc();
       await saveDeliveryStatus({
         status: "failed",
         event_id: event.event_id,
@@ -137,6 +197,8 @@ export async function startConsumer(): Promise<() => Promise<void>> {
   });
 
   return async () => {
+    clearInterval(lagTimer);
     await consumer.disconnect();
+    await admin.disconnect();
   };
 }

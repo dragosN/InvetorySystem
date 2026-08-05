@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/nicadragos/InventorySystem/orders-service/internal/metrics"
 )
 
 type Publisher interface {
@@ -82,11 +84,13 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.publisher.PublishOrderCreated(r.Context(), o); err != nil {
+		metrics.KafkaPublishErrors.Inc()
 		h.logger.Error("publish order.created", "order_id", o.ID, "error", err)
 		writeError(w, http.StatusInternalServerError, "order saved but failed to publish event")
 		return
 	}
 
+	metrics.OrdersCreated.Inc()
 	h.logger.Info("order created", "order_id", o.ID, "total", o.Total)
 	writeJSON(w, http.StatusCreated, o)
 }

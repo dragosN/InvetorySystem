@@ -1,5 +1,6 @@
 import type { OrderCreatedEvent } from "./types.ts";
 import { config } from "./config";
+import { webhookRetries } from "./metrics";
 
 export type WebhookResult =
   | { ok: true; status: number; attempts: number }
@@ -97,6 +98,7 @@ export async function deliverWebhook(
         error: lastError,
       }),
     );
+    webhookRetries.inc();
     await sleep(delay);
   }
 

@@ -18,6 +18,8 @@ export const config = {
   webhookBaseDelayMs: envInt("WEBHOOK_BASE_DELAY_MS", 200),
   webhookTimeoutMs: envInt("WEBHOOK_TIMEOUT_MS", 5000),
   mockReceiverPort: envInt("MOCK_WEBHOOK_PORT", 8090),
+  metricsPort: envInt("METRICS_PORT", 8081),
+  lagRefreshMs: envInt("LAG_REFRESH_MS", 10000),
   redisUrl: envOr("REDIS_URL", "redis://localhost:6379"),
   idempotencyKeyPrefix: envOr("IDEMPOTENCY_KEY_PREFIX", "notify:delivery"),
   idempotencyTTLSeconds: envInt("IDEMPOTENCY_TTL_SECONDS", 60 * 60 * 24 * 7),

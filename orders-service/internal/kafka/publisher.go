@@ -36,7 +36,6 @@ func NewPublisher(brokers []string, topic string) *Publisher {
 			Balancer:     &kafkago.LeastBytes{},
 			RequiredAcks: kafkago.RequireOne,
 			Async:        false,
-			Compression:  kafkago.CompressionNone,
 		},
 	}
 }

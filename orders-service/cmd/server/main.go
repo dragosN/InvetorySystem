@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nicadragos/InventorySystem/orders-service/internal/kafka"
+	"github.com/nicadragos/InventorySystem/orders-service/internal/metrics"
 	"github.com/nicadragos/InventorySystem/orders-service/internal/order"
 	"github.com/nicadragos/InventorySystem/orders-service/internal/ratelimit"
 )
@@ -43,10 +44,12 @@ func main() {
 	defer limiter.Close()
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
 	order.NewHandler(store, publisher, logger).Register(mux)
 
 	var handler http.Handler = mux
 	handler = ratelimit.Middleware(limiter, logger)(handler)
+	handler = metrics.Middleware(handler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -84,13 +87,13 @@ func main() {
 }
 
 type config struct {
-	HTTPAddr       string
-	KafkaBrokers   []string
-	KafkaTopic     string
-	SQLitePath     string
-	RedisAddr      string
-	RateLimit      int
-	RateWindowSec  int
+	HTTPAddr      string
+	KafkaBrokers  []string
+	KafkaTopic    string
+	SQLitePath    string
+	RedisAddr     string
+	RateLimit     int
+	RateWindowSec int
 }
 
 func loadConfig() config {
