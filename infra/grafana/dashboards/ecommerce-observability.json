@@ -240,6 +240,14 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
+          "expr": "sum(rate(orders_published_total[1m]))",
+          "legendFormat": "outbox published/sec",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
           "expr": "sum(rate(notifications_events_consumed_total[1m]))",
           "legendFormat": "events consumed/sec",
           "range": true,
@@ -302,9 +310,17 @@
           "legendFormat": "{{topic}} p{{partition}}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
+          "expr": "sum(orders_outbox_pending)",
+          "legendFormat": "outbox pending",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "Consumer lag by partition",
+      "title": "Consumer lag / outbox pending",
       "type": "timeseries"
     },
     {

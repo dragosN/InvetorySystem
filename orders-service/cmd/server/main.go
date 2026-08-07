@@ -43,9 +43,15 @@ func main() {
 	}
 	defer limiter.Close()
 
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	worker := order.NewOutboxWorker(store, publisher, logger)
+	go worker.Run(workerCtx)
+
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
-	order.NewHandler(store, publisher, logger).Register(mux)
+	order.NewHandler(store, worker, logger).Register(mux)
 
 	var handler http.Handler = mux
 	handler = ratelimit.Middleware(limiter, logger)(handler)
@@ -66,6 +72,7 @@ func main() {
 			"redis", cfg.RedisAddr,
 			"rate_limit", cfg.RateLimit,
 			"rate_window_sec", cfg.RateWindowSec,
+			"publish_mode", "outbox",
 		)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
@@ -76,6 +83,8 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+
+	workerCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

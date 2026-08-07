@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>InventorySystem — Performance Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #171a21;
+      --surface-2: #1e232c;
+      --border: #2a3140;
+      --text: #e8eaed;
+      --muted: #9aa3b2;
+      --accent: #5b9fd4;
+      --ok: #3d9a6a;
+      --warn: #c4923a;
+      --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; }
+    a { color: var(--accent); }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin: 0; }
+    .pill {
+      display: inline-flex; align-items: center; font-size: 0.75rem; font-weight: 600;
+      padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--ok); margin-left: 10px;
+    }
+    nav.tabs {
+      display: flex; flex-wrap: wrap; gap: 6px; margin: 24px 0 20px; padding: 4px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    }
+    nav.tabs button {
+      appearance: none; border: 0; background: transparent; color: var(--muted);
+      font: inherit; font-size: 0.875rem; font-weight: 500; padding: 8px 14px;
+      border-radius: 8px; cursor: pointer;
+    }
+    nav.tabs button:hover { color: var(--text); background: var(--surface-2); }
+    nav.tabs button.active { color: var(--text); background: var(--surface-2); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .stat .v { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
+    .stat .l { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    .stat.info .v { color: var(--accent); }
+    .stat.ok .v { color: var(--ok); }
+    .stat.warn .v { color: var(--warn); }
+    .callout {
+      background: color-mix(in srgb, var(--ok) 12%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--border));
+      border-radius: 10px; padding: 14px 16px; margin: 16px 0 20px;
+    }
+    .callout strong { display: block; margin-bottom: 4px; color: var(--ok); }
+    .callout p { margin: 0; font-size: 0.92rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; margin-bottom: 16px;
+    }
+    .card h2 { font-size: 1.05rem; margin: 0 0 4px; font-weight: 600; }
+    .card .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 12px; }
+    .chart-box { position: relative; height: 280px; }
+    .chart-box.sm { height: 220px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+    td.num { text-align: right; font-family: var(--mono); font-size: 0.85rem; }
+    .ok { color: var(--ok); }
+    .findings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 700px) { .findings { grid-template-columns: 1fr; } }
+    details.finding {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    }
+    details.finding summary {
+      cursor: pointer; list-style: none; padding: 14px 16px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      font-weight: 600; font-size: 0.95rem;
+    }
+    details.finding summary::-webkit-details-marker { display: none; }
+    details.finding summary::after { content: "+"; color: var(--muted); }
+    details.finding[open] summary::after { content: "−"; }
+    details.finding .body { padding: 0 16px 14px; color: var(--muted); font-size: 0.9rem; }
+    details.finding .body p { margin: 0 0 6px; color: var(--text); }
+    .tag {
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 2px 8px; border-radius: 6px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    }
+    .tag.pass { color: var(--ok); }
+    pre {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; overflow-x: auto;
+      font-family: var(--mono); font-size: 0.85rem;
+    }
+    .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .toggle-row label {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem;
+      color: var(--muted); cursor: pointer; padding: 4px 10px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface-2); user-select: none;
+    }
+    .toggle-row input { accent-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>App performance report <span class="pill">Outbox fixed</span></h1>
+      <p class="sub">
+        InventorySystem · transactional outbox · before/after k6 (25 VUs, ~70s) · 2026-08-07
+      </p>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="active" data-tab="overview">Overview</button>
+      <button type="button" data-tab="compare">Before / after</button>
+      <button type="button" data-tab="after">After detail</button>
+      <button type="button" data-tab="findings">Findings</button>
+    </nav>
+
+    <section id="overview" class="panel active">
+      <div class="stats">
+        <div class="stat ok"><div class="v">2.7 ms</div><div class="l">k6 p95 after</div></div>
+        <div class="stat warn"><div class="v">1.02 s</div><div class="l">k6 p95 before</div></div>
+        <div class="stat info"><div class="v">27.5k</div><div class="l">Requests after</div></div>
+        <div class="stat ok"><div class="v">~380×</div><div class="l">p95 improvement</div></div>
+      </div>
+      <div class="callout">
+        <strong>Fix: transactional outbox + batched Kafka publish</strong>
+        <p>
+          HTTP commits order + outbox, returns 201. A worker publishes in batches.
+          Clients no longer wait on Kafka RTT. Same stress profile: 1,371 → 27,574
+          requests, p95 1.02s → 2.7ms, end-to-end parity still 100%.
+        </p>
+      </div>
+      <div class="card">
+        <h2>k6 p95 — before vs after</h2>
+        <p class="hint">Same profile: 25 VUs, ~70s · hover for exact values</p>
+        <div class="chart-box sm"><canvas id="chartP95"></canvas></div>
+      </div>
+    </section>
+
+    <section id="compare" class="panel">
+      <div class="card">
+        <h2>Compare metrics</h2>
+        <p class="hint">Toggle series · values normalized per chart axis</p>
+        <div class="toggle-row" id="cmpToggles"></div>
+        <div class="chart-box"><canvas id="chartCompare"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>Full comparison table</h2>
+        <table>
+          <thead>
+            <tr><th>Metric</th><th class="num">Before</th><th class="num">After</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>k6 requests</td><td class="num">1,371</td><td class="num">27,574</td></tr>
+            <tr><td>k6 fail rate</td><td class="num">0%</td><td class="num">0%</td></tr>
+            <tr><td>k6 p50</td><td class="num">high ms / ~s</td><td class="num">1.2 ms</td></tr>
+            <tr><td>k6 p95</td><td class="num">1.02 s</td><td class="num">2.7 ms</td></tr>
+            <tr><td>Server avg POST</td><td class="num">992 ms</td><td class="num">1.07 ms</td></tr>
+            <tr><td>Prometheus p95</td><td class="num">~2.4 s</td><td class="num">~4.8 ms</td></tr>
+            <tr><td>Pipeline parity</td><td class="num">100%</td><td class="num">100%</td></tr>
+            <tr><td>Outbox pending (end)</td><td class="num">n/a</td><td class="num">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="after" class="panel">
+      <div class="stats">
+        <div class="stat info"><div class="v">27,574</div><div class="l">Created</div></div>
+        <div class="stat ok"><div class="v">27,574</div><div class="l">Published</div></div>
+        <div class="stat ok"><div class="v">27,574</div><div class="l">Consumed / webhook</div></div>
+        <div class="stat ok"><div class="v">0</div><div class="l">Outbox pending</div></div>
+      </div>
+      <div class="card">
+        <h2>Pipeline volume (after)</h2>
+        <div class="chart-box sm"><canvas id="chartVolume"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>Latency after outbox</h2>
+        <table>
+          <tbody>
+            <tr><td>k6 p50 / p95 / max</td><td class="num">1.2 / 2.7 / 21.8 ms</td></tr>
+            <tr><td>Server average</td><td class="num">1.072 ms</td></tr>
+            <tr><td>Prometheus p50 / p95</td><td class="num">~2.5 / ~4.8 ms</td></tr>
+            <tr><td>Kafka publish errors</td><td class="num ok">0</td></tr>
+            <tr><td>Consumer lag</td><td class="num ok">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="findings" class="panel">
+      <div class="findings">
+        <details class="finding" open>
+          <summary>HTTP no longer waits on Kafka <span class="tag pass">Pass</span></summary>
+          <div class="body">
+            <p>Transactional outbox: commit order + event, return 201, publish in a worker with batched WriteMessages.</p>
+          </div>
+        </details>
+        <details class="finding" open>
+          <summary>Throughput jumped <span class="tag pass">Pass</span></summary>
+          <div class="body">
+            <p>Same 25 VU profile completed ~20× more requests because each iteration returns in milliseconds.</p>
+          </div>
+        </details>
+        <details class="finding" open>
+          <summary>End-to-end parity held <span class="tag pass">Pass</span></summary>
+          <div class="body">
+            <p>27,574 created = published = consumed = webhook success. Outbox pending drained to 0.</p>
+          </div>
+        </details>
+        <details class="finding">
+          <summary>SQLite still caps write QPS <span class="tag">Next</span></summary>
+          <div class="body">
+            <p>MaxOpenConns(1) keeps SQLite correct but serializes writers. Next production step is Postgres — not putting Kafka back on the request path.</p>
+          </div>
+        </details>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2>Reproduce</h2>
+        <pre>make stop-apps
+make demo
+make stress</pre>
+        <p class="sub">Static twin: <a href="./PERFORMANCE.md">PERFORMANCE.md</a></p>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const COLORS = {
+      accent: "#5b9fd4", ok: "#3d9a6a", warn: "#c4923a",
+      muted: "#9aa3b2", grid: "#2a3140",
+    };
+    Chart.defaults.color = COLORS.muted;
+    Chart.defaults.borderColor = COLORS.grid;
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+    new Chart(document.getElementById("chartP95"), {
+      type: "bar",
+      data: {
+        labels: ["Before (sync Kafka)", "After (outbox)"],
+        datasets: [{
+          label: "k6 p95 (ms)",
+          data: [1020, 2.7],
+          backgroundColor: [COLORS.warn, COLORS.ok],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => ` ${c.parsed.y} ms` } },
+        },
+        scales: {
+          y: {
+            type: "logarithmic",
+            grid: { color: COLORS.grid },
+            title: { display: true, text: "Latency (ms, log scale)" },
+          },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+
+    const chartCompare = new Chart(document.getElementById("chartCompare"), {
+      type: "bar",
+      data: {
+        labels: ["Requests (k)", "p95 (ms)", "Avg server (ms)"],
+        datasets: [
+          {
+            label: "Before",
+            data: [1.371, 1020, 992],
+            backgroundColor: COLORS.warn,
+            borderRadius: 4,
+          },
+          {
+            label: "After",
+            data: [27.574, 2.7, 1.07],
+            backgroundColor: COLORS.ok,
+            borderRadius: 4,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { boxWidth: 12, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                const units = ["k req", "ms", "ms"];
+                return ` ${ctx.dataset.label}: ${ctx.parsed.y} ${units[ctx.dataIndex]}`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            type: "logarithmic",
+            grid: { color: COLORS.grid },
+            title: { display: true, text: "Value (log scale)" },
+          },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+
+    const cmpEl = document.getElementById("cmpToggles");
+    chartCompare.data.datasets.forEach((ds, i) => {
+      const label = document.createElement("label");
+      label.innerHTML = `<input type="checkbox" checked /> ${ds.label}`;
+      label.querySelector("input").addEventListener("change", (e) => {
+        chartCompare.setDatasetVisibility(i, e.target.checked);
+        chartCompare.update();
+      });
+      cmpEl.appendChild(label);
+    });
+
+    new Chart(document.getElementById("chartVolume"), {
+      type: "bar",
+      data: {
+        labels: ["Created", "Published", "Consumed", "Webhook OK", "Outbox pending"],
+        datasets: [{
+          data: [27574, 27574, 27574, 27574, 0],
+          backgroundColor: [COLORS.accent, COLORS.ok, COLORS.ok, COLORS.ok, COLORS.muted],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: COLORS.grid } },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+
+    const tabs = document.querySelectorAll("nav.tabs button");
+    const panels = document.querySelectorAll(".panel");
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        tabs.forEach((b) => b.classList.remove("active"));
+        panels.forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.tab).classList.add("active");
+      });
+    });
+  </script>
+</body>
+</html>

@@ -35,9 +35,12 @@ start_bg() {
   echo "    started ${name} (pid $!, log ${logfile})"
 }
 
+echo "==> Building orders-service..."
+ORDERS_BIN="${PID_DIR}/orders-bin"
+(cd "${ROOT_DIR}/orders-service" && go build -o "${ORDERS_BIN}" ./cmd/server)
+
 echo "==> Starting app processes..."
-start_bg orders \
-  bash -c "cd '${ROOT_DIR}/orders-service' && exec go run ./cmd/server"
+start_bg orders "${ORDERS_BIN}"
 
 start_bg mock-webhook \
   bash -c "cd '${ROOT_DIR}/notifications-service' && exec bun run mock-webhook"

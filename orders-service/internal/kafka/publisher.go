@@ -36,6 +36,8 @@ func NewPublisher(brokers []string, topic string) *Publisher {
 			Balancer:     &kafkago.LeastBytes{},
 			RequiredAcks: kafkago.RequireOne,
 			Async:        false,
+			BatchTimeout: 10 * time.Millisecond,
+			BatchSize:    100,
 		},
 	}
 }
@@ -44,6 +46,27 @@ func (p *Publisher) Close() error {
 	return p.writer.Close()
 }
 
+// PublishRaw writes a pre-serialized outbox payload (key = order id).
+func (p *Publisher) PublishRaw(ctx context.Context, key string, payload []byte) error {
+	return p.PublishRawBatch(ctx, []kafkago.Message{{
+		Key:   []byte(key),
+		Value: payload,
+		Time:  time.Now().UTC(),
+	}})
+}
+
+// PublishRawBatch writes multiple outbox payloads in one Kafka produce round-trip.
+func (p *Publisher) PublishRawBatch(ctx context.Context, msgs []kafkago.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	if err := p.writer.WriteMessages(ctx, msgs...); err != nil {
+		return fmt.Errorf("write kafka messages: %w", err)
+	}
+	return nil
+}
+
+// PublishOrderCreated builds and publishes an order.created event (tests / ad-hoc use).
 func (p *Publisher) PublishOrderCreated(ctx context.Context, o order.Order) error {
 	event := OrderCreatedEvent{
 		EventID:   uuid.NewString(),
@@ -59,15 +82,5 @@ func (p *Publisher) PublishOrderCreated(ctx context.Context, o order.Order) erro
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-
-	msg := kafkago.Message{
-		Key:   []byte(o.ID),
-		Value: payload,
-		Time:  time.Now().UTC(),
-	}
-
-	if err := p.writer.WriteMessages(ctx, msg); err != nil {
-		return fmt.Errorf("write kafka message: %w", err)
-	}
-	return nil
+	return p.PublishRaw(ctx, o.ID, payload)
 }

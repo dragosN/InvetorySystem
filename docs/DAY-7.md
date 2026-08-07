@@ -19,20 +19,28 @@ make down          # tear down
 | [`scripts/load-orders.sh`](../scripts/load-orders.sh) | Curl burst for dashboard demos |
 | [`Makefile`](../Makefile) | `demo`, `load`, `load-rate`, `smoke`, `status`, `down` |
 
-## Load test
+## Load / stress test
+
+**Prefer k6** for real stress testing (VU ramp, p95 latency, fail thresholds). Curl scripts remain for quick bursts.
 
 ```bash
-./scripts/load-orders.sh 100 10
-# or
-make load
-```
+make stress                 # k6: ramp to 25 VUs for ~70s (Docker if k6 not installed)
+make stress-rate            # shared X-Client-Id → exercise Redis rate limit
+VUS=50 DURATION=2m make stress
 
-Unique `X-Client-Id` per request by default (avoids the 5/min rate limit). Shared client for limiter demos:
-
-```bash
+# lighter curl alternative
+make load                   # 100 orders / 10 parallel
 make load-rate
-# SHARED_CLIENT=1 ./scripts/load-orders.sh 20
 ```
+
+| Script | Role |
+|--------|------|
+| [`scripts/stress-orders.k6.js`](../scripts/stress-orders.k6.js) | k6 scenario + thresholds |
+| [`scripts/run-k6.sh`](../scripts/run-k6.sh) | Local k6 or `grafana/k6` Docker |
+| [`scripts/load-orders.sh`](../scripts/load-orders.sh) | Simple curl burst |
+
+After the transactional outbox change, the same `make stress` profile typically shows **p95 of a few ms** and much higher request counts. See [PERFORMANCE.md](./PERFORMANCE.md).
+| [`scripts/stress-orders.sh`](../scripts/stress-orders.sh) | Heavier curl burst (optional) |
 
 While it runs, watch http://localhost:3000/d/ecommerce-observability — throughput, lag, webhook rates, and API latency should move within a scrape interval (~15s).
 

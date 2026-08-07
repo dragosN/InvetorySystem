@@ -1,7 +1,6 @@
 package order
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -14,21 +13,17 @@ import (
 	"github.com/nicadragos/InventorySystem/orders-service/internal/metrics"
 )
 
-type Publisher interface {
-	PublishOrderCreated(ctx context.Context, o Order) error
-}
-
 type Handler struct {
-	store     *Store
-	publisher Publisher
-	logger    *slog.Logger
+	store  *Store
+	worker *OutboxWorker
+	logger *slog.Logger
 }
 
-func NewHandler(store *Store, publisher Publisher, logger *slog.Logger) *Handler {
+func NewHandler(store *Store, worker *OutboxWorker, logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{store: store, publisher: publisher, logger: logger}
+	return &Handler{store: store, worker: worker, logger: logger}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
@@ -77,21 +72,31 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 		Timestamp: now,
 	}
 
-	if err := h.store.Create(r.Context(), o); err != nil {
-		h.logger.Error("store order", "error", err)
+	eventID := uuid.NewString()
+	payload, err := json.Marshal(map[string]any{
+		"event_id":   eventID,
+		"event_type": "order.created",
+		"order_id":   o.ID,
+		"items":      o.Items,
+		"total":      o.Total,
+		"status":     o.Status,
+		"timestamp":  o.Timestamp,
+	})
+	if err != nil {
+		h.logger.Error("marshal outbox payload", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store order")
 		return
 	}
 
-	if err := h.publisher.PublishOrderCreated(r.Context(), o); err != nil {
-		metrics.KafkaPublishErrors.Inc()
-		h.logger.Error("publish order.created", "order_id", o.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "order saved but failed to publish event")
+	if err := h.store.CreateWithOutbox(r.Context(), o, eventID, payload); err != nil {
+		h.logger.Error("store order + outbox", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to store order")
 		return
 	}
 
+	h.worker.Notify()
 	metrics.OrdersCreated.Inc()
-	h.logger.Info("order created", "order_id", o.ID, "total", o.Total)
+	h.logger.Debug("order created", "order_id", o.ID, "event_id", eventID, "total", o.Total)
 	writeJSON(w, http.StatusCreated, o)
 }
 

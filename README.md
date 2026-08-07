@@ -20,8 +20,9 @@ make load
 | Abuse protection | Redis fixed-window rate limit on `POST /orders` |
 | Exactly-once delivery intent | Redis idempotency by `event_id` before webhooks |
 | Observability | Prometheus metrics + Grafana dashboard (throughput, lag, latency, webhook health) |
+| Reliable publish | Transactional outbox — HTTP does not wait on Kafka |
 
-Interview angle: a small but coherent distributed system — not a CRUD toy — with deliberate trade-offs (store-then-publish, fixed windows, commit-after-retries).
+Interview angle: a small but coherent distributed system — not a CRUD toy — with deliberate trade-offs (transactional outbox, fixed windows, commit-after-retries).
 
 ## Architecture
 
@@ -30,6 +31,8 @@ flowchart LR
   Client[Client / load script]
   Orders[orders-service Go]
   Redis[(Redis)]
+  SQLite[(SQLite orders + outbox)]
+  Worker[Outbox worker]
   Kafka[Redpanda]
   Notif[notifications-service Bun]
   Hook[Mock webhook]
@@ -38,8 +41,9 @@ flowchart LR
 
   Client -->|POST /orders| Orders
   Orders -->|rate limit| Redis
-  Orders -->|persist| SQLite[(SQLite)]
-  Orders -->|publish order.created| Kafka
+  Orders -->|txn| SQLite
+  Worker -->|drain outbox| SQLite
+  Worker -->|publish order.created| Kafka
   Kafka --> Notif
   Notif -->|idempotency| Redis
   Notif -->|POST + retries| Hook
@@ -47,6 +51,8 @@ flowchart LR
   Notif -->|/metrics :8081| Prom
   Prom --> Graf
 ```
+
+Latency note: HTTP returns after the SQLite commit. Kafka publish is asynchronous via the outbox worker — see [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Prerequisites
 
@@ -73,9 +79,8 @@ That starts Redpanda, Redis, Prometheus, Grafana, the orders API, the mock webho
 ### Load test (watch the dashboard)
 
 ```bash
-make load                 # 100 orders, 10 parallel
-make load-rate            # shared client → 429s
-./scripts/load-orders.sh 200 20
+make stress                 # k6 (recommended)
+make load                   # quick curl burst
 ```
 
 ### Stop
@@ -122,6 +127,7 @@ docs/                     # Day 1–7 write-ups
 - [Day 5 — Prometheus metrics](docs/DAY-5.md)
 - [Day 6 — Grafana dashboard](docs/DAY-6.md)
 - [Day 7 — Load test & polish](docs/DAY-7.md)
+- [Performance report](docs/PERFORMANCE.md) ([interactive HTML](docs/performance-report.html))
 
 ## License
 

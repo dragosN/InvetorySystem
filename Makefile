@@ -1,15 +1,17 @@
-.PHONY: help up down demo stop-apps load load-rate smoke status
+.PHONY: help up down demo stop-apps load load-rate stress stress-rate smoke status
 
 help:
 	@echo "Targets:"
-	@echo "  make demo       Start infra + apps (one command)"
-	@echo "  make up         Start Docker infra only"
-	@echo "  make stop-apps  Stop Go/Bun app processes"
-	@echo "  make down       Stop apps + Docker infra"
-	@echo "  make load       Burst 100 orders (10 parallel)"
-	@echo "  make load-rate  Burst with shared client (hit rate limit)"
-	@echo "  make smoke      Kafka produce/consume smoke test"
-	@echo "  make status     Show health endpoints"
+	@echo "  make demo        Start infra + apps (one command)"
+	@echo "  make up          Start Docker infra only"
+	@echo "  make stop-apps   Stop Go/Bun app processes"
+	@echo "  make down        Stop apps + Docker infra"
+	@echo "  make load        Light curl burst (100 / 10)"
+	@echo "  make load-rate   Curl burst that hits rate limit"
+	@echo "  make stress      k6 stress test (25 VUs, ~70s)"
+	@echo "  make stress-rate k6 with shared client (rate limit)"
+	@echo "  make smoke       Kafka produce/consume smoke test"
+	@echo "  make status      Show health endpoints"
 
 up:
 	docker compose -f infra/docker-compose.yml up -d
@@ -28,6 +30,13 @@ load:
 
 load-rate:
 	SHARED_CLIENT=1 ./scripts/load-orders.sh 20
+
+# Prefer local k6; otherwise run via Docker against host services.
+stress:
+	@./scripts/run-k6.sh
+
+stress-rate:
+	@SHARED_CLIENT=1 ./scripts/run-k6.sh
 
 smoke:
 	./scripts/smoke-kafka.sh

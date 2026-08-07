@@ -1,14 +1,15 @@
 # orders-service
 
-Go REST API for orders. Creates orders in SQLite, publishes `order.created` to Kafka, and rate-limits creates via Redis.
+Go REST API for orders. Persists to SQLite with a **transactional outbox**, publishes `order.created` asynchronously to Kafka, and rate-limits creates via Redis.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/orders` | Create order + publish event (rate limited) |
+| `POST` | `/orders` | Create order + outbox row (rate limited); Kafka publish is async |
 | `GET` | `/orders/{id}` | Fetch order by id |
 | `GET` | `/healthz` | Liveness |
+| `GET` | `/metrics` | Prometheus metrics |
 
 ### Create order body
 
@@ -23,6 +24,15 @@ Go REST API for orders. Creates orders in SQLite, publishes `order.created` to K
 `unit_price` and response `total` are in cents.
 
 Rate limit identity: `X-Client-Id` header, else client IP. Over limit → `429` with `Retry-After`.
+
+## Publish path
+
+1. Validate request
+2. Begin SQLite transaction: insert `orders` + `outbox` (payload ready for Kafka)
+3. Commit → return `201`
+4. Background `OutboxWorker` publishes unpublished rows and marks them done
+
+Metrics: `orders_created_total` (accepted), `orders_published_total` (Kafka OK), `orders_outbox_pending`.
 
 ## Run
 

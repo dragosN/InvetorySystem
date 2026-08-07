@@ -32,7 +32,21 @@ var (
 	OrdersCreated = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "orders_created_total",
-			Help: "Orders successfully created and published",
+			Help: "Orders accepted (persisted to SQLite + outbox)",
+		},
+	)
+
+	OrdersPublished = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "orders_published_total",
+			Help: "Outbox rows successfully published to Kafka",
+		},
+	)
+
+	OutboxPending = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "orders_outbox_pending",
+			Help: "Unpublished outbox rows waiting for Kafka",
 		},
 	)
 

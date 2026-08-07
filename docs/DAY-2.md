@@ -28,15 +28,20 @@ orders-service/
 flowchart TD
   Client[Client]
   Handler[Handler validate + UUID + total]
-  SQLite[(SQLite)]
+  SQLite[(SQLite orders + outbox)]
+  Worker[Outbox worker]
   Kafka[Redpanda order.created]
 
   Client -->|"POST /orders"| Handler
-  Handler -->|INSERT| SQLite
-  Handler -->|"publish order.created"| Kafka
+  Handler -->|"txn INSERT"| SQLite
+  Handler -->|"201"| Client
+  Worker -->|drain unpublished| SQLite
+  Worker -->|PublishRaw| Kafka
   Client -->|"GET /orders/:id"| Handler
   Handler -->|SELECT| SQLite
 ```
+
+> **Update:** Day 2 originally used sync store-then-publish on the request path. The service now uses a transactional outbox so HTTP latency does not include Kafka RTT. See [PERFORMANCE.md](./PERFORMANCE.md).
 
 ## Order schema
 
@@ -78,13 +83,13 @@ flowchart TD
 
 | Method | Path | Behavior |
 |--------|------|----------|
-| `POST` | `/orders` | Validate → store → publish → `201` |
+| `POST` | `/orders` | Validate → store order + outbox → `201` (Kafka publish is async) |
 | `GET` | `/orders/{id}` | Load from SQLite → `200` / `404` |
 | `GET` | `/healthz` | Liveness |
 
 Validation: non-empty `items`; each item needs `sku`, `quantity > 0`, `unit_price >= 0`.
 
-If Kafka publish fails after a successful insert, the API returns `500` (`order saved but failed to publish event`) — simple store-then-publish trade-off for Day 2.
+If Kafka is down, the API still returns `201` after the outbox commit; the worker retries unpublished rows. (Earlier Day 2 returned `500` after a successful insert when sync publish failed.)
 
 ## Pieces
 

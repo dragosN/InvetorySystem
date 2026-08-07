@@ -12,7 +12,9 @@ Expose `/metrics` on both services and scrape them from Prometheus so counters/h
 |--------|------|---------|
 | `orders_http_requests_total` | counter | Requests by method/path/status |
 | `orders_http_request_duration_seconds` | histogram | Latency |
-| `orders_created_total` | counter | Successful create+publish |
+| `orders_created_total` | counter | Successful create (SQLite + outbox commit) |
+| `orders_published_total` | counter | Outbox rows published to Kafka |
+| `orders_outbox_pending` | gauge | Unpublished outbox rows |
 | `orders_kafka_publish_errors_total` | counter | Kafka publish failures |
 | `orders_rate_limit_rejected_total` | counter | `429` from rate limiter |
 
