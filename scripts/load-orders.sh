@@ -78,3 +78,4 @@ else
 fi
 
 echo "done: 201=${ok}  429=${limited}  other=${other}"
+echo "Watch Grafana: http://localhost:3000/d/ecommerce-observability"

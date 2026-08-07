@@ -18,3 +18,7 @@ notifications-service/node_modules/
 .env
 .env.*
 !.env.example
+
+# Local runtime
+.pids/
+.logs/
